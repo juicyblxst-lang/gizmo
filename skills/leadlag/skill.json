@@ -1,0 +1,6 @@
+{
+  "name": "leadlag",
+  "description": "BTC/SOL lead-lag signal generator for X Layer",
+  "version": "1.0.0",
+  "triggers": ["leadlag", "btc sol signal", "z-score", "lead lag"]
+}

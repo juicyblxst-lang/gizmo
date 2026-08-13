@@ -1,0 +1,13 @@
+[
+  {
+    "timestamp": "2026-08-12T12:07:21.729Z",
+    "fullOutput": "I've analysed the BTC/SOL relationship.\n\nBTC leads SOL by 14 hours with a correlation of 0.1278.\nThe current z-score is 0.3125, which is within normal range.\nNo signal at this time. The relationship between the two assets appears stable.\n\nCurrent prices: BTC at $64379, SOL at $73.93.\nBased on 153 observations.\n\n💰 Wallet: 0x21d35b82dFdd91e6A312d4C0Acff276CdE3D2B58\n🌐 Network: X Layer testnet\n",
+    "lag": 14,
+    "correlation": 0.1278,
+    "zscore": 0.3125,
+    "hasSignal": false,
+    "direction": "NEUTRAL",
+    "btcPrice": 64379,
+    "solPrice": 73.93
+  }
+]

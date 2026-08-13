@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LeadLag Agent — Interactive UI</title>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            height: 100vh;
+            display: flex;
+        }
+        .sidebar {
+            width: 320px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .chat-area {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .chat-input-area {
+            border-top: 1px solid #30363d;
+            padding: 16px 20px;
+            display: flex;
+            gap: 12px;
+            background: #0d1117;
+        }
+        .chat-input-area input {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            background: #161b22;
+            color: #e6edf3;
+            font-size: 14px;
+            outline: none;
+        }
+        .chat-input-area input:focus {
+            border-color: #58a6ff;
+        }
+        .chat-input-area button {
+            padding: 10px 24px;
+            border-radius: 8px;
+            border: none;
+            background: #238636;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .chat-input-area button:hover {
+            background: #2ea043;
+        }
+        .message {
+            padding: 12px 16px;
+            border-radius: 8px;
+            max-width: 80%;
+            line-height: 1.5;
+            font-size: 14px;
+        }
+        .message.user {
+            align-self: flex-end;
+            background: #238636;
+        }
+        .message.agent {
+            align-self: flex-start;
+            background: #161b22;
+            border: 1px solid #30363d;
+        }
+        .message.system {
+            align-self: center;
+            background: #1c2333;
+            color: #8b949e;
+            font-size: 12px;
+            max-width: 90%;
+            text-align: center;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .stat-card {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 12px 16px;
+        }
+        .stat-card .label {
+            font-size: 11px;
+            text-transform: uppercase;
+            color: #8b949e;
+            letter-spacing: 0.06em;
+        }
+        .stat-card .value {
+            font-size: 22px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+        .stat-card .value.neutral { color: #d29922; }
+        .stat-card .value.long { color: #3fb950; }
+        .stat-card .value.short { color: #f85149; }
+        .chart-container {
+            background: #161b22;
+            border-radius: 8px;
+            padding: 16px;
+            border: 1px solid #30363d;
+            margin-bottom: 16px;
+        }
+        .history-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .history-table th {
+            text-align: left;
+            padding: 8px 12px;
+            color: #8b949e;
+            font-weight: 500;
+            border-bottom: 1px solid #30363d;
+        }
+        .history-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid #21262d;
+        }
+        .badge {
+            display: inline-block;
+            padding: 2px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge.long { background: #3fb95022; color: #3fb950; }
+        .badge.short { background: #f8514922; color: #f85149; }
+        .badge.neutral { background: #d2992222; color: #d29922; }
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            margin: 16px 0 8px 0;
+            color: #8b949e;
+            letter-spacing: 0.04em;
+        }
+        .scrollable {
+            overflow-y: auto;
+            flex: 1;
+        }
+        .trade-btn {
+            width: 100%;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            font-weight: 600;
+            font-size: 14px;
+            cursor: pointer;
+            margin-top: 8px;
+            transition: 0.2s;
+        }
+        .trade-btn.long {
+            background: #3fb950;
+            color: #0d1117;
+        }
+        .trade-btn.short {
+            background: #f85149;
+            color: #0d1117;
+        }
+        .trade-btn.neutral {
+            background: #30363d;
+            color: #8b949e;
+            cursor: not-allowed;
+        }
+        .trade-btn:hover:not(.neutral) {
+            opacity: 0.85;
+        }
+        .status-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 6px;
+        }
+        .status-dot.live { background: #3fb950; }
+        .status-dot.waiting { background: #d29922; }
+        .status-dot.offline { background: #f85149; }
+        .tx-hash {
+            font-family: monospace;
+            font-size: 12px;
+            color: #58a6ff;
+            word-break: break-all;
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:16px;">
+        <span style="font-size:24px;">🧠</span>
+        <span style="font-weight:700; font-size:18px;">LeadLag Agent</span>
+        <span class="status-dot live" id="statusDot"></span>
+    </div>
+
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-card">
+            <div class="label">Z-Score</div>
+            <div class="value neutral" id="zscoreDisplay">—</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">Direction</div>
+            <div class="value neutral" id="directionDisplay">NEUTRAL</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">BTC</div>
+            <div class="value" id="btcDisplay" style="font-size:18px;">—</div>
+        </div>
+        <div class="stat-card">
+            <div class="label">SOL</div>
+            <div class="value" id="solDisplay" style="font-size:18px;">—</div>
+        </div>
+    </div>
+
+    <div style="margin: 8px 0 12px 0; background:#0d1117; border-radius:8px; padding:12px; border:1px solid #30363d;">
+        <div style="font-size:11px; color:#8b949e;">Wallet</div>
+        <div style="font-size:13px; font-family:monospace; word-break:break-all;">0x21d35b82...dFdd91e6</div>
+        <div style="font-size:12px; color:#3fb950;">Balance: 0.2 OKB</div>
+        <div style="font-size:11px; color:#8b949e; margin-top:4px;">🌐 X Layer Testnet</div>
+    </div>
+
+    <div style="margin-top:auto; padding-top:12px; border-top:1px solid #30363d;">
+        <button class="trade-btn neutral" id="tradeBtn" disabled>No Signal</button>
+        <button style="width:100%; padding:8px; border-radius:6px; border:1px solid #30363d; background:transparent; color:#8b949e; cursor:pointer; margin-top:8px; font-size:12px;" id="refreshBtn">🔄 Refresh Data</button>
+    </div>
+</div>
+
+<div class="main">
+    <div class="chat-area" id="chatArea">
+        <div class="message system">🤖 LeadLag Agent initialized — monitoring BTC/SOL relationship on X Layer testnet.</div>
+        <div class="message agent">I'll analyze BTC/SOL lead-lag signals and alert you when z-score crosses ±2.0 threshold.</div>
+    </div>
+    <div class="chat-input-area">
+        <input type="text" id="chatInput" placeholder="Ask about signals, BTC/SOL, or type 'run' to check now..." />
+        <button id="sendBtn">Send</button>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    const chatArea = document.getElementById('chatArea');
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const refreshBtn = document.getElementById('refreshBtn');
+
+    let signalsData = [];
+    let chart = null;
+
+    // --- Helpers ---
+    function addMessage(text, type = 'agent') {
+        const div = document.createElement('div');
+        div.className = `message ${type}`;
+        div.textContent = text;
+        chatArea.appendChild(div);
+        chatArea.scrollTop = chatArea.scrollHeight;
+    }
+
+    function updateStats(signal) {
+        if (!signal) return;
+        const z = signal.zscore || 0;
+        const dir = signal.direction || 'NEUTRAL';
+        const cls = dir.toLowerCase();
+
+        document.getElementById('zscoreDisplay').textContent = z.toFixed(4);
+        document.getElementById('zscoreDisplay').className = `value ${cls}`;
+        document.getElementById('directionDisplay').textContent = dir;
+        document.getElementById('directionDisplay').className = `value ${cls}`;
+        document.getElementById('btcDisplay').textContent = signal.btcPrice ? `$${signal.btcPrice}` : '—';
+        document.getElementById('solDisplay').textContent = signal.solPrice ? `$${signal.solPrice.toFixed(2)}` : '—';
+
+        const btn = document.getElementById('tradeBtn');
+        if (dir === 'NEUTRAL') {
+            btn.className = 'trade-btn neutral';
+            btn.textContent = 'No Signal';
+            btn.disabled = true;
+        } else {
+            btn.className = `trade-btn ${cls}`;
+            btn.textContent = `⚡ Execute ${dir} Trade`;
+            btn.disabled = false;
+        }
+    }
+
+    function updateChart(data) {
+        const ctx = document.getElementById('zscoreChart');
+        if (!ctx) return;
+        if (!chart) {
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: data.map(d => new Date(d.timestamp).toLocaleTimeString()),
+                    datasets: [{
+                        label: 'Z-Score',
+                        data: data.map(d => d.zscore || 0),
+                        borderColor: '#58a6ff',
+                        backgroundColor: '#58a6ff22',
+                        fill: true,
+                        tension: 0.3,
+                        pointRadius: 3,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#8b949e' } }
+                    },
+                    scales: {
+                        y: {
+                            grid: { color: '#21262d' },
+                            ticks: { color: '#8b949e' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#8b949e', maxTicksLimit: 10 }
+                        }
+                    }
+                }
+            });
+        } else {
+            chart.data.labels = data.map(d => new Date(d.timestamp).toLocaleTimeString());
+            chart.data.datasets[0].data = data.map(d => d.zscore || 0);
+            chart.update();
+        }
+    }
+
+    function updateHistory(data) {
+        const tbody = document.getElementById('historyBody');
+        if (!tbody) return;
+        const rows = data.slice(-20).reverse();
+        tbody.innerHTML = rows.map(d => `
+            <tr>
+                <td>${new Date(d.timestamp).toLocaleString()}</td>
+                <td>${(d.zscore || 0).toFixed(4)}</td>
+                <td><span class="badge ${(d.direction || 'NEUTRAL').toLowerCase()}">${d.direction || 'NEUTRAL'}</span></td>
+                <td>$${d.btcPrice || '—'}</td>
+                <td>$${d.solPrice || '—'}</td>
+                <td>${(d.correlation || 0).toFixed(4)}</td>
+            </tr>
+        `).join('');
+    }
+
+    // --- Socket events ---
+    socket.on('signals', (data) => {
+        signalsData = data;
+        if (data.length > 0) {
+            updateStats(data[data.length - 1]);
+            updateChart(data);
+            updateHistory(data);
+        }
+    });
+
+    // --- Actions ---
+    async function runSignal() {
+        addMessage('🔄 Running leadlag analysis...', 'system');
+        try {
+            const res = await fetch('/api/run', { method: 'POST' });
+            const data = await res.json();
+            if (data.error) {
+                addMessage(`❌ Error: ${data.error}`, 'system');
+            } else {
+                addMessage(`✅ Analysis complete. Check the dashboard for results.`, 'system');
+                // refresh data
+                const signalsRes = await fetch('/api/signals');
+                const signals = await signalsRes.json();
+                socket.emit('signals', signals);
+            }
+        } catch (err) {
+            addMessage(`❌ Request failed: ${err.message}`, 'system');
+        }
+    }
+
+    // --- Event listeners ---
+    sendBtn.addEventListener('click', async () => {
+        const text = chatInput.value.trim();
+        if (!text) return;
+        addMessage(text, 'user');
+        chatInput.value = '';
+
+        // Simple commands
+        if (text.toLowerCase() === 'run' || text.toLowerCase() === 'check' || text.toLowerCase() === 'signal') {
+            await runSignal();
+            return;
+        }
+
+        if (text.toLowerCase().includes('z-score') || text.toLowerCase().includes('btc') || text.toLowerCase().includes('sol')) {
+            const latest = signalsData[signalsData.length - 1];
+            if (latest) {
+                addMessage(`📊 Latest signal: Z-score = ${latest.zscore?.toFixed(4) || 'N/A'}, Direction = ${latest.direction || 'NEUTRAL'}, BTC = $${latest.btcPrice || 'N/A'}, SOL = $${latest.solPrice || 'N/A'}`, 'agent');
+            } else {
+                addMessage('No signal data available yet. Try "run" to fetch fresh data.', 'agent');
+            }
+            return;
+        }
+
+        addMessage(`I can help with: "run" (fetch signal), "btc/sol" (latest prices), or ask about z-score.`, 'agent');
+    });
+
+    chatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') sendBtn.click();
+    });
+
+    refreshBtn.addEventListener('click', async () => {
+        const res = await fetch('/api/signals');
+        const data = await res.json();
+        if (data.length > 0) {
+            updateStats(data[data.length - 1]);
+            updateChart(data);
+            updateHistory(data);
+            addMessage('🔄 Dashboard refreshed.', 'system');
+        }
+    });
+
+    // Trade button
+    document.getElementById('tradeBtn').addEventListener('click', () => {
+        const dir = document.getElementById('directionDisplay').textContent;
+        if (dir === 'NEUTRAL') return;
+        addMessage(`⚡ Executing ${dir} trade on X Layer testnet...`, 'system');
+        // Later: call /api/execute with direction
+    });
+
+    // --- Init ---
+    fetch('/api/signals')
+        .then(r => r.json())
+        .then(data => {
+            signalsData = data;
+            if (data.length > 0) {
+                updateStats(data[data.length - 1]);
+                updateChart(data);
+                updateHistory(data);
+            }
+        });
+</script>
+
+</body>
+</html>

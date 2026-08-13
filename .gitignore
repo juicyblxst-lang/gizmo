@@ -1,0 +1,46 @@
+# Sensitive files
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+secrets/
+config/private/
+credentials.json
+wallet.json
+*.p12
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+bun.lock
+
+# Build
+dist/
+build/
+.vercel/
+.netlify/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+monitor/cron.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+Thumbs.db

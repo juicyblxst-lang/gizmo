@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LeadLag Agent — Conversational UI</title>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* ===== SIDEBAR ===== */
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+            padding: 20px 16px;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+        .logo { font-size: 20px; font-weight: 700; margin-bottom: 20px; }
+        .logo span { color: #8b86ff; }
+
+        .pair-list { flex: 1; overflow-y: auto; }
+        .pair-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            border-radius: 6px;
+            margin-bottom: 4px;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .pair-item:hover { background: #21262d; }
+        .pair-item.active { border-color: #8b86ff; background: #1c1a3a; }
+        .pair-name { font-size: 13px; font-weight: 600; }
+        .pair-zscore { font-size: 12px; font-family: monospace; padding: 2px 8px; border-radius: 4px; }
+        .pair-zscore.long { color: #3fb950; background: #3fb95022; }
+        .pair-zscore.short { color: #f85149; background: #f8514922; }
+        .pair-zscore.neutral { color: #d29922; background: #d2992222; }
+
+        .status-bar {
+            padding-top: 12px;
+            border-top: 1px solid #30363d;
+            font-size: 12px;
+            color: #8b949e;
+        }
+        .status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+        .status-dot.live { background: #3fb950; }
+
+        /* ===== MAIN ===== */
+        .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+        .chat-header {
+            padding: 12px 24px;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #0d1117;
+        }
+        .chat-header h2 { font-size: 16px; font-weight: 600; }
+        .chat-header h2 span { color: #8b949e; font-weight: 400; }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .message {
+            max-width: 80%;
+            padding: 10px 16px;
+            border-radius: 12px;
+            font-size: 14px;
+            line-height: 1.6;
+            animation: fadeIn 0.2s ease;
+        }
+        .message.user { align-self: flex-end; background: #8b86ff; color: #fff; border-bottom-right-radius: 4px; }
+        .message.agent { align-self: flex-start; background: #161b22; border: 1px solid #30363d; border-bottom-left-radius: 4px; }
+        .message.system { align-self: center; background: transparent; color: #8b949e; font-size: 12px; max-width: 90%; text-align: center; }
+
+        .message .highlight { color: #8b86ff; font-weight: 600; }
+        .message .green { color: #3fb950; }
+        .message .red { color: #f85149; }
+        .message .yellow { color: #d29922; }
+
+        @keyframes fadeIn { from { opacity:0; transform:translateY(4px); } to { opacity:1; transform:translateY(0); } }
+
+        .chat-input-area {
+            border-top: 1px solid #30363d;
+            padding: 12px 24px;
+            background: #0d1117;
+            display: flex;
+            gap: 12px;
+        }
+        .chat-input-area input {
+            flex: 1;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid #30363d;
+            background: #161b22;
+            color: #e6edf3;
+            font-size: 14px;
+            outline: none;
+        }
+        .chat-input-area input:focus { border-color: #8b86ff; }
+        .chat-input-area input::placeholder { color: #8b949e; }
+        .chat-input-area button {
+            padding: 10px 24px;
+            border-radius: 8px;
+            border: none;
+            background: #8b86ff;
+            color: #fff;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .chat-input-area button:hover { background: #7b73e5; }
+
+        .quick-actions {
+            display: flex;
+            gap: 8px;
+            padding: 8px 24px;
+            border-bottom: 1px solid #30363d;
+            background: #0d1117;
+            flex-wrap: wrap;
+        }
+        .quick-actions button {
+            padding: 4px 14px;
+            border-radius: 16px;
+            border: 1px solid #30363d;
+            background: transparent;
+            color: #8b949e;
+            font-size: 12px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .quick-actions button:hover { border-color: #8b86ff; color: #e6edf3; }
+
+        /* ===== CHART MODAL ===== */
+        .chart-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            padding: 40px;
+        }
+        .chart-modal.show { display: flex; align-items: center; justify-content: center; }
+        .chart-modal-content {
+            background: #161b22;
+            border-radius: 12px;
+            padding: 24px;
+            width: 90%;
+            max-width: 800px;
+            max-height: 80vh;
+            overflow-y: auto;
+            border: 1px solid #30363d;
+        }
+        .chart-modal-content h3 { margin-bottom: 16px; }
+        .chart-modal-content .close { float: right; background: none; border: none; color: #8b949e; font-size: 24px; cursor: pointer; }
+        .chart-container { height: 300px; }
+
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 768px) {
+            .sidebar { display: none; }
+            .message { max-width: 95%; }
+            .quick-actions { padding: 8px 16px; }
+            .chat-input-area { padding: 8px 16px; flex-wrap: wrap; }
+            .chat-input-area input { min-width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<!-- ===== SIDEBAR ===== -->
+<div class="sidebar">
+    <div class="logo">🧠 LeadLag <span>Agent</span></div>
+    <div class="pair-list" id="pairList"></div>
+    <div class="status-bar">
+        <span class="status-dot live"></span> Live · <span id="lastUpdate">—</span>
+    </div>
+</div>
+
+<!-- ===== MAIN ===== -->
+<div class="main">
+    <div class="chat-header">
+        <h2>Conversation <span>· Ask about signals, prices, history</span></h2>
+    </div>
+
+    <div class="quick-actions" id="quickActions">
+        <button data-command="signals">📊 Signals</button>
+        <button data-command="market ETH">💰 Market</button>
+        <button data-command="history">📜 History</button>
+        <button data-command="monitor ETH">⏱️ Monitor</button>
+        <button data-command="help">❓ Help</button>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+        <div class="message system">🤖 LeadLag Agent initialized — monitoring 6 pairs on X Layer testnet.</div>
+        <div class="message agent">
+            Welcome! I'm LeadLag, an AI agent that analyzes lead-lag relationships between crypto pairs.
+            <br><br>
+            <b>Here's what I can do:</b><br>
+            • <span class="highlight">"signals"</span> — Show current signals across all pairs<br>
+            • <span class="highlight">"market ETH"</span> — Get price data for a pair<br>
+            • <span class="highlight">"history"</span> — Show past signals<br>
+            • <span class="highlight">"monitor ETH"</span> — Set up monitoring for a pair<br>
+            • <span class="highlight">"help"</span> — Show this guide again
+            <br><br>
+            All data comes from OKX — no invented numbers.
+        </div>
+    </div>
+
+    <div class="chat-input-area">
+        <input type="text" id="chatInput" placeholder="Type a command (e.g., signals, market ETH, history)..." />
+        <button id="sendBtn">Send</button>
+    </div>
+</div>
+
+<!-- ===== CHART MODAL ===== -->
+<div class="chart-modal" id="chartModal">
+    <div class="chart-modal-content">
+        <button class="close" onclick="closeChart()">✕</button>
+        <h3 id="chartTitle">Z-Score History</h3>
+        <div class="chart-container"><canvas id="chartCanvas"></canvas></div>
+    </div>
+</div>
+
+<script>
+// ==========================================
+// STATE
+// ==========================================
+let signalsData = null;
+let pairData = {};
+
+// ==========================================
+// DOM REFS
+// ==========================================
+const chatMessages = document.getElementById('chatMessages');
+const chatInput = document.getElementById('chatInput');
+const sendBtn = document.getElementById('sendBtn');
+const pairList = document.getElementById('pairList');
+const lastUpdate = document.getElementById('lastUpdate');
+
+// ==========================================
+// ADD MESSAGE
+// ==========================================
+function addMessage(text, type = 'agent') {
+    const div = document.createElement('div');
+    div.className = `message ${type}`;
+    div.innerHTML = text;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// ==========================================
+// FETCH SIGNALS
+// ==========================================
+async function fetchSignals() {
+    try {
+        const res = await fetch('/api/tools/signals');
+        const data = await res.json();
+        signalsData = data;
+        updateSidebar(data);
+        lastUpdate.textContent = new Date().toLocaleTimeString();
+        return data;
+    } catch (error) {
+        console.error('Error fetching signals:', error);
+        return null;
+    }
+}
+
+// ==========================================
+// UPDATE SIDEBAR
+// ==========================================
+function updateSidebar(data) {
+    if (!data || !data.pairs) return;
+    pairList.innerHTML = '';
+    for (const [pair, info] of Object.entries(data.pairs)) {
+        const div = document.createElement('div');
+        div.className = 'pair-item';
+        if (info.signal === 'ACTIVE' && info.direction !== 'NEUTRAL') {
+            div.classList.add('active');
+        }
+        const z = info.zscore || 0;
+        const dir = info.direction || 'NEUTRAL';
+        const cls = dir.toLowerCase();
+        div.innerHTML = `
+            <span class="pair-name">${pair.replace('-USDT-SWAP', '')}</span>
+            <span class="pair-zscore ${cls}">${z.toFixed(2)} ${dir !== 'NEUTRAL' ? '●' : ''}</span>
+        `;
+        div.onclick = () => showPairChart(pair);
+        pairList.appendChild(div);
+    }
+}
+
+// ==========================================
+// SHOW PAIR CHART
+// ==========================================
+let chartInstance = null;
+
+function showPairChart(pair) {
+    // For now, show a message
+    addMessage(`📊 Chart for ${pair} — feature coming soon.`, 'agent');
+}
+
+function closeChart() {
+    document.getElementById('chartModal').classList.remove('show');
+}
+
+// ==========================================
+// PROCESS COMMAND
+// ==========================================
+async function processCommand(text) {
+    const lower = text.toLowerCase().trim();
+
+    if (!lower) return;
+
+    // HELP
+    if (lower === 'help') {
+        addMessage(`
+            <b>Commands:</b><br>
+            • <span class="highlight">signals</span> — Current signals across all pairs<br>
+            • <span class="highlight">market ETH</span> — Price data (ETH, SOL, XRP, DOGE, BTC)<br>
+            • <span class="highlight">history</span> — Past signals<br>
+            • <span class="highlight">monitor ETH</span> — Start monitoring a pair<br>
+            • <span class="highlight">help</span> — Show this guide
+        `, 'agent');
+        return;
+    }
+
+    // SIGNALS
+    if (lower === 'signals' || lower === 'signal') {
+        const data = await fetchSignals();
+        if (!data) {
+            addMessage('❌ Failed to fetch signals. Check if the backend is running.', 'system');
+            return;
+        }
+
+        const active = data.activeSignals || [];
+        if (active.length === 0) {
+            addMessage('✅ No active signals. All z-scores are within normal range (±2.0).', 'agent');
+        } else {
+            let msg = `🚨 ${active.length} active signal(s) detected:\n\n`;
+            for (const s of active) {
+                msg += `🔥 <b>${s.pair}</b><br>`;
+                msg += `   Direction: <span class="${s.direction.toLowerCase()}">${s.direction}</span> (${s.confidence}% confidence)<br>`;
+                msg += `   Z-Score: ${s.zscore.toFixed(2)}<br>`;
+                msg += `   Price: $${s.price.toFixed(2)}<br><br>`;
+            }
+            addMessage(msg, 'agent');
+        }
+        return;
+    }
+
+    // MARKET
+    if (lower.startsWith('market ')) {
+        const pair = lower.replace('market ', '').toUpperCase();
+        const fullPair = `${pair}-USDT-SWAP`;
+        try {
+            const res = await fetch(`/api/tools/market?pair=${fullPair}`);
+            const data = await res.json();
+            if (data.error) {
+                addMessage(`❌ ${data.error}`, 'system');
+                return;
+            }
+            addMessage(`
+                📊 <b>${fullPair}</b><br>
+                Price: $${data.price || 'N/A'}<br>
+                24h Volume: $${(data.volume24h || 0).toLocaleString()}<br>
+                24h High: $${data.high24h || 'N/A'}<br>
+                24h Low: $${data.low24h || 'N/A'}<br>
+                Change: ${data.change24h || 0}%
+            `, 'agent');
+        } catch (error) {
+            addMessage(`❌ Failed to fetch market data: ${error.message}`, 'system');
+        }
+        return;
+    }
+
+    // HISTORY
+    if (lower === 'history') {
+        try {
+            const res = await fetch('/api/tools/history?limit=10');
+            const data = await res.json();
+            if (data.error) {
+                addMessage(`❌ ${data.error}`, 'system');
+                return;
+            }
+            if (data.signals.length === 0) {
+                addMessage('📜 No signals recorded yet.', 'agent');
+                return;
+            }
+            let msg = '📜 <b>Last 10 signals:</b><br><br>';
+            for (const s of data.signals) {
+                const dir = s.direction || 'NEUTRAL';
+                msg += `• ${s.pair}: ${dir} (Z: ${s.zscore.toFixed(2)}) — ${new Date(s.timestamp).toLocaleString()}<br>`;
+            }
+            addMessage(msg, 'agent');
+        } catch (error) {
+            addMessage(`❌ Failed to fetch history: ${error.message}`, 'system');
+        }
+        return;
+    }
+
+    // MONITOR
+    if (lower.startsWith('monitor ')) {
+        const pair = lower.replace('monitor ', '').toUpperCase();
+        const fullPair = `${pair}-USDT-SWAP`;
+        try {
+            const res = await fetch('/api/tools/monitor', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pair: fullPair })
+            });
+            const data = await res.json();
+            if (data.success) {
+                addMessage(`✅ ${data.message}`, 'agent');
+            } else {
+                addMessage(`⚠️ ${data.message}`, 'system');
+            }
+        } catch (error) {
+            addMessage(`❌ Failed to update monitoring: ${error.message}`, 'system');
+        }
+        return;
+    }
+
+    // UNKNOWN
+    addMessage(`I didn't understand that. Try <span class="highlight">"help"</span> for commands.`, 'agent');
+}
+
+// ==========================================
+// EVENT LISTENERS
+// ==========================================
+sendBtn.addEventListener('click', () => {
+    const text = chatInput.value.trim();
+    if (!text) return;
+    addMessage(text, 'user');
+    chatInput.value = '';
+    processCommand(text);
+});
+
+chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') sendBtn.click();
+});
+
+// Quick action buttons
+document.querySelectorAll('.quick-actions button').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const cmd = btn.dataset.command;
+        addMessage(cmd, 'user');
+        processCommand(cmd);
+    });
+});
+
+// ==========================================
+// INIT
+// ==========================================
+fetchSignals();
+setInterval(fetchSignals, 30000);
+</script>
+</body>
+</html>

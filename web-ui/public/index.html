@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>LeadLag Agent</title>
+    <script src="https://cdn.socket.io/4.5.0/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0d1117;
+            color: #e6edf3;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container { max-width: 1200px; margin: 0 auto; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid #30363d;
+        }
+        .header h1 { font-size: 24px; }
+        .header span { color: #8b86ff; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background: #161b22;
+            border-radius: 10px;
+            padding: 14px 18px;
+            border: 1px solid #30363d;
+        }
+        .card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; letter-spacing: 0.06em; }
+        .card .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+        .value.neutral { color: #d29922; }
+        .value.long { color: #3fb950; }
+        .value.short { color: #f85149; }
+        .chart-container {
+            background: #161b22;
+            border-radius: 10px;
+            padding: 16px;
+            border: 1px solid #30363d;
+            margin-bottom: 20px;
+            height: 200px;
+        }
+        .table-wrap {
+            background: #161b22;
+            border-radius: 10px;
+            padding: 16px;
+            border: 1px solid #30363d;
+            overflow-x: auto;
+        }
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { text-align: left; padding: 6px 10px; color: #8b949e; border-bottom: 1px solid #30363d; }
+        td { padding: 6px 10px; border-bottom: 1px solid #21262d; }
+        .badge {
+            display: inline-block;
+            padding: 1px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .badge.long { background: #3fb95022; color: #3fb950; }
+        .badge.short { background: #f8514922; color: #f85149; }
+        .badge.neutral { background: #d2992222; color: #d29922; }
+        .btn {
+            background: #8b86ff;
+            border: none;
+            color: #fff;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .btn:hover { background: #7b73e5; }
+        .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #8b949e; }
+        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+        .dot.live { background: #3fb950; }
+        .dot.waiting { background: #d29922; }
+        .chat-area {
+            background: #161b22;
+            border-radius: 10px;
+            border: 1px solid #30363d;
+            padding: 16px;
+            margin-top: 16px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .chat-message { padding: 4px 0; font-size: 14px; border-bottom: 1px solid #21262d; }
+        .chat-message .user { color: #8b86ff; font-weight: 600; }
+        .chat-message .agent { color: #3fb950; }
+        .chat-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .chat-input input {
+            flex: 1;
+            padding: 8px 14px;
+            border-radius: 6px;
+            border: 1px solid #30363d;
+            background: #0d1117;
+            color: #e6edf3;
+            font-size: 14px;
+        }
+        .chat-input button { background: #8b86ff; border: none; color: #fff; padding: 8px 20px; border-radius: 6px; cursor: pointer; }
+        @media (max-width: 600px) { .grid { grid-template-columns: 1fr 1fr; } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <div>
+            <h1>🧠 LeadLag <span>Agent</span></h1>
+            <div class="status">
+                <span class="dot live" id="statusDot"></span>
+                <span id="statusText">Live</span>
+                <span style="margin-left:12px;" id="lastUpdate">—</span>
+            </div>
+        </div>
+        <div>
+            <button class="btn" onclick="runSignal()">▶ Run Signal</button>
+        </div>
+    </div>
+
+    <div class="grid" id="statsGrid">
+        <div class="card"><div class="label">Z-Score</div><div class="value neutral" id="zscoreDisplay">—</div></div>
+        <div class="card"><div class="label">Direction</div><div class="value neutral" id="directionDisplay">NEUTRAL</div></div>
+        <div class="card"><div class="label">BTC</div><div class="value" id="btcDisplay" style="font-size:18px;">—</div></div>
+        <div class="card"><div class="label">SOL</div><div class="value" id="solDisplay" style="font-size:18px;">—</div></div>
+        <div class="card"><div class="label">Wallet</div><div class="value" style="font-size:13px; font-family:monospace;" id="walletDisplay">0x21d35b82...</div></div>
+        <div class="card"><div class="label">Balance</div><div class="value" id="balanceDisplay" style="font-size:18px;">0.2 OKB</div></div>
+    </div>
+
+    <div class="chart-container"><canvas id="zscoreChart"></canvas></div>
+
+    <div class="table-wrap">
+        <h3 style="margin-bottom:10px; font-size:14px;">Signal History</h3>
+        <table>
+            <thead><tr><th>Time</th><th>Z-Score</th><th>Direction</th><th>BTC</th><th>SOL</th></tr></thead>
+            <tbody id="historyBody"><tr><td colspan="5" style="text-align:center; color:#8b949e; padding:16px;">No signals yet</td></tr></tbody>
+        </table>
+    </div>
+
+    <div style="margin-top:16px;">
+        <div class="chat-area" id="chatArea">
+            <div class="chat-message"><span class="agent">🤖</span> LeadLag Agent ready. Type a command below.</div>
+        </div>
+        <div class="chat-input">
+            <input type="text" id="chatInput" placeholder="Type 'run' for signal, 'help' for commands..." />
+            <button onclick="sendMessage()">Send</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let signalsData = [];
+    let chart = null;
+
+    function addChatMessage(text, type = 'agent') {
+        const area = document.getElementById('chatArea');
+        const div = document.createElement('div');
+        div.className = 'chat-message';
+        div.innerHTML = `<span class="${type}">${type === 'agent' ? '🤖' : '👤'}</span> ${text}`;
+        area.appendChild(div);
+        area.scrollTop = area.scrollHeight;
+    }
+
+    async function runSignal() {
+        addChatMessage('Running signal analysis...', 'agent');
+        try {
+            const res = await fetch('/api/run', { method: 'POST' });
+            const data = await res.json();
+            if (data.error) {
+                addChatMessage('❌ Error: ' + data.error, 'agent');
+            } else {
+                addChatMessage('✅ Analysis complete. Dashboard updated.', 'agent');
+                fetchData();
+            }
+        } catch (e) {
+            addChatMessage('❌ Error: ' + e.message, 'agent');
+        }
+    }
+
+    async function fetchData() {
+        try {
+            const res = await fetch('/api/signals');
+            const data = await res.json();
+            signalsData = data;
+            if (data.length > 0) updateUI(data);
+        } catch (e) { console.error(e); }
+    }
+
+    function updateUI(data) {
+        const latest = data[data.length - 1];
+        const dir = latest.direction || 'NEUTRAL';
+        const cls = dir.toLowerCase();
+        document.getElementById('zscoreDisplay').textContent = (latest.zscore || 0).toFixed(4);
+        document.getElementById('zscoreDisplay').className = `value ${cls}`;
+        document.getElementById('directionDisplay').textContent = dir;
+        document.getElementById('directionDisplay').className = `value ${cls}`;
+        document.getElementById('btcDisplay').textContent = latest.btcPrice ? `$${latest.btcPrice}` : '—';
+        document.getElementById('solDisplay').textContent = latest.solPrice ? `$${latest.solPrice.toFixed(2)}` : '—';
+        document.getElementById('lastUpdate').textContent = new Date(latest.timestamp).toLocaleTimeString();
+        updateChart(data);
+        updateHistory(data);
+    }
+
+    function updateChart(data) {
+        const ctx = document.getElementById('zscoreChart').getContext('2d');
+        const labels = data.map(d => new Date(d.timestamp).toLocaleTimeString());
+        const values = data.map(d => d.zscore || 0);
+        if (chart) { chart.destroy(); }
+        chart = new Chart(ctx, {
+            type: 'line',
+            data: { labels, datasets: [{ label: 'Z-Score', data: values, borderColor: '#8b86ff', backgroundColor: 'rgba(139,134,255,0.08)', fill: true, tension: 0.3, pointRadius: 2 }] },
+            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { display: false }, ticks: { color: '#8b949e', maxTicksLimit: 6 } }, y: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' }, min: -3, max: 3 } } }
+        });
+    }
+
+    function updateHistory(data) {
+        const tbody = document.getElementById('historyBody');
+        const rows = data.slice(-15).reverse();
+        if (rows.length === 0) { tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; color:#8b949e; padding:16px;">No signals yet</td></tr>'; return; }
+        tbody.innerHTML = rows.map(d => `<tr><td>${new Date(d.timestamp).toLocaleString()}</td><td>${(d.zscore||0).toFixed(4)}</td><td><span class="badge ${(d.direction||'NEUTRAL').toLowerCase()}">${d.direction||'NEUTRAL'}</span></td><td>$${d.btcPrice||'—'}</td><td>$${d.solPrice||'—'}</td></tr>`).join('');
+    }
+
+    function sendMessage() {
+        const input = document.getElementById('chatInput');
+        const text = input.value.trim();
+        if (!text) return;
+        addChatMessage(text, 'user');
+        input.value = '';
+        if (text.toLowerCase() === 'run') { runSignal(); return; }
+        if (text.toLowerCase() === 'help') { addChatMessage('Commands: run, help', 'agent'); return; }
+        const latest = signalsData[signalsData.length - 1];
+        if (latest) {
+            addChatMessage(`Z-Score: ${latest.zscore?.toFixed(4) || 'N/A'}, Direction: ${latest.direction || 'NEUTRAL'}`, 'agent');
+        } else {
+            addChatMessage('No data. Try "run" to fetch signal.', 'agent');
+        }
+    }
+
+    document.getElementById('chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+
+    socket.on('signals', (data) => { signalsData = data; if (data.length > 0) updateUI(data); });
+    fetchData();
+    setInterval(fetchData, 30000);
+</script>
+</body>
+</html>
