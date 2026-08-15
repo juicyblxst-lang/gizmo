@@ -6,7 +6,7 @@ const { exec } = require('child_process');
 const app = express();
 const server = http.createServer(app);
 const io = socketIo(server);
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 const SIGNALS_FILE = '/Users/mac/.openclaw/workspace/monitor/signals.json';
 app.use(express.json());
 app.use(express.static('public'));
