@@ -1,11 +1,11 @@
-const axios = require('axios');
 const { PAIRS } = require('../data');
 
 /**
  * market-tool.js
- * 
+ *
  * Returns current market data for specified pair or all pairs.
- * Called by OpenClaw when user asks about prices.
+ * Uses Node's native fetch so deployment does not depend on axios being
+ * present in a separate dependency tree. The source remains the live OKX API.
  */
 async function getMarketData(pair = null) {
     try {
@@ -14,12 +14,21 @@ async function getMarketData(pair = null) {
 
         for (const p of pairs) {
             try {
-                const response = await axios.get('https://www.okx.com/api/v5/market/ticker', {
-                    params: { instId: p }
+                const url = new URL('https://www.okx.com/api/v5/market/ticker');
+                url.searchParams.set('instId', p);
+
+                const response = await fetch(url, {
+                    headers: { 'Accept': 'application/json' }
                 });
-                
-                if (response.data.data && response.data.data[0]) {
-                    const ticker = response.data.data[0];
+
+                if (!response.ok) {
+                    throw new Error(`OKX market API returned HTTP ${response.status}`);
+                }
+
+                const body = await response.json();
+
+                if (body.data && body.data[0]) {
+                    const ticker = body.data[0];
                     results[p] = {
                         price: parseFloat(ticker.last),
                         volume24h: parseFloat(ticker.vol24h),
@@ -28,12 +37,14 @@ async function getMarketData(pair = null) {
                         change24h: parseFloat(ticker.change24h) || 0,
                         timestamp: new Date().toISOString()
                     };
+                } else {
+                    results[p] = { error: body.msg || 'No market data returned by OKX' };
                 }
             } catch (error) {
                 results[p] = { error: error.message };
             }
-            
-            // Small delay to avoid rate limiting
+
+            // Small delay to avoid rate limiting.
             await new Promise(r => setTimeout(r, 100));
         }
 
