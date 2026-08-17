@@ -50,6 +50,23 @@ function reasonAboutSignal(symbol, record, market, history = []) {
     return parts.join(' ');
 }
 
+function reasonAboutSignalQuality(symbol, record) {
+    const signal = signalContext(record);
+    if (!signal || signal.signal === 'NO_DATA') return `I don't have a current quantitative measurement for ${symbol} to assess. I won't manufacture a confidence or quality score.`;
+    if (signal.signal === 'INSUFFICIENT_DATA' || signal.signal === 'NO_CORRELATION') {
+        return `The engine is not establishing a usable ${symbol} lead-lag measurement right now: ${signal.signal}. That means there isn't enough verified evidence for me to describe the setup as strong or reliable.`;
+    }
+
+    const parts = [`${symbol} has a current ${String(signal.signal).toLowerCase()} engine measurement.`];
+    if (signal.confidence != null) parts.push(`The engine reports confidence of ${signal.confidence.toFixed(2)}.`);
+    else parts.push('The current engine record does not expose a confidence value, so I will not invent one.');
+    if (signal.correlation != null) parts.push(`Measured correlation is ${signal.correlation.toFixed(3)}.`);
+    if (signal.lag != null) parts.push(`Measured lag is ${signal.lag}h.`);
+    if (signal.zscore != null) parts.push(`Measured z-score is ${signal.zscore.toFixed(2)}.`);
+    parts.push(`Those are the engine's supplied measurements; this layer does not combine them into a new quality score or predict the next move.`);
+    return parts.join(' ');
+}
+
 function reasonAboutHistory(symbol, records = []) {
     const usable = (records || []).filter((item) => item && !item.error);
     if (!usable.length) return `I don't have recorded signal history for ${symbol || 'that market'} yet.`;
@@ -105,4 +122,4 @@ function compareEvidence(entries) {
     return `Among the currently measured markets, ${name} has the largest absolute z-score${z == null ? '' : ` at ${z.toFixed(2)}`}. This is a ranking of the engine's measured evidence, not a prediction of which market will perform best.`;
 }
 
-module.exports = { reasonAboutSignal, reasonAboutHistory, reasonAboutSimilarSetup, compareEvidence };
+module.exports = { reasonAboutSignal, reasonAboutSignalQuality, reasonAboutHistory, reasonAboutSimilarSetup, compareEvidence };
