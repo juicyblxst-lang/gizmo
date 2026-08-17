@@ -126,8 +126,23 @@ async function answerSimilarSetup(symbol) {
   return { handled: true, response: reasonAboutSimilarSetup(symbol, record, records), context: { pair: symbol } };
 }
 
-async function answerMonitor(symbol) {
-  if (!symbol) return { handled: true, response: 'Which market should I watch? Try “monitor SOL” or “watch BTC”.' };
+async function answerMonitor(symbol, text = '') {
+  if (!symbol) {
+    const monitored = await getMonitored();
+    const pairs = Array.isArray(monitored?.monitored) ? monitored.monitored : [];
+    const wantsStatus = /\b(what|which|list|show|status|currently|am i|my)\b/i.test(text) || /\b(watchlist|monitoring)\b/i.test(text);
+    if (!wantsStatus) return { handled: true, response: 'Which market should I watch? Try “monitor SOL” or “watch BTC”.' };
+    if (monitored?.error) return { handled: true, response: "I couldn't read the monitoring list, so I won't invent its contents." };
+    if (!pairs.length) return { handled: true, response: 'Nothing is currently on the monitoring list.' };
+    const signals = await getSignals();
+    const lines = pairs.map((pair) => {
+      const symbolName = String(pair).replace('-USDT-SWAP', '');
+      const record = signals?.pairs?.[pair];
+      if (!record || record.signal === 'NO_DATA') return `${symbolName}: no current engine signal available.`;
+      return `${symbolName}: ${record.signal || 'NO_DATA'} · ${record.direction || 'NEUTRAL'} · z ${Number(record.zscore || 0).toFixed(2)}`;
+    });
+    return { handled: true, response: `Monitoring ${pairs.length} market${pairs.length === 1 ? '' : 's'}:\n${lines.join('\n')}`, context: { pair: pairs[0].replace('-USDT-SWAP', '') } };
+  }
   const result = await addMonitor(pairId(symbol));
   return { handled: true, response: result?.success === false ? `I couldn't add ${symbol} to the watchlist: ${result.message || 'the monitor tool failed'}.` : `${symbol} is now on the monitoring list.`, context: { pair: symbol } };
 }
@@ -138,6 +153,7 @@ async function answerFollowUp(symbol, text, messages) {
   if (kind === 'similar_setup') return answerSimilarSetup(symbol);
   if (kind === 'explanation' || /^why\b/i.test(text.trim())) return answerExplanation(symbol);
   if (kind === 'signals') return answerSignals(symbol);
+  if (kind === 'monitor') return answerMonitor(symbol, text);
   return answerMarket(symbol, messages, text);
 }
 
@@ -159,7 +175,7 @@ async function processConversation(messages = []) {
     case 'similar_setup': return answerSimilarSetup(symbol);
     case 'comparison': return answerComparison();
     case 'history': return answerHistory(symbol);
-    case 'monitor': return answerMonitor(symbol);
+    case 'monitor': return answerMonitor(symbol, text);
     case 'status': {
       const [signals, monitored] = await Promise.all([getSignals(), getMonitored()]);
       return { handled: true, response: `Gizmo is up. ${Object.keys(signals?.pairs || {}).length} pairs loaded, ${signals?.activeSignals?.length || 0} active signals. Monitoring: ${(monitored?.monitored || []).join(', ') || 'none'}.` };
