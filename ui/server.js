@@ -41,3 +41,14 @@ app.get('/api/tools/leadlag-chart',async(req,res)=>{
         res.json(analyzeLeadLagPair(requested,allPrices[requested],btcPrices,80));
     }catch(error){res.status(500).json({error:error.message});}
 });
+
+// Workspace intelligence bridge. Existing tool endpoints and UI remain unchanged.
+app.post('/api/agent/chat', async (req, res) => {
+    try {
+        const { processConversation } = require('../skills/leadlag/workspace-intelligence');
+        const result = await processConversation(Array.isArray(req.body?.messages) ? req.body.messages : []);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ handled: true, error: error.message, response: 'The Gizmo intelligence engine failed to respond. I did not substitute invented market data.' });
+    }
+});
