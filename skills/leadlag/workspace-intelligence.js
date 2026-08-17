@@ -2,7 +2,7 @@ const { getSignals } = require('./tools/signal-tool');
 const { getMarketData } = require('./tools/market-tool');
 const { getHistory } = require('./tools/history-tool');
 const { addMonitor, getMonitored } = require('./tools/monitor-tool');
-const { reasonAboutSignal, compareEvidence } = require('./tools/reasoning-tool');
+const { reasonAboutSignal, reasonAboutHistory, compareEvidence } = require('./tools/reasoning-tool');
 
 const PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'HYPE'];
 
@@ -126,11 +126,10 @@ async function answerComparison() {
 }
 
 async function answerHistory(symbol) {
-  const data = await getHistory(20);
+  const data = await getHistory(20, symbol ? pairId(symbol) : null);
   const records = Array.isArray(data) ? data : (data?.signals || []);
-  const filtered = records.filter((item) => !symbol || item?.pair === symbol || item?.pair === pairId(symbol) || item?.symbol === symbol);
-  if (!filtered.length) return { handled: true, response: `I don't have recorded ${symbol || ''} signal history available right now.` };
-  return { handled: true, response: filtered.slice(0, 10).map((item) => `• ${item.pair || item.symbol || 'market'}: ${item.direction || 'NEUTRAL'} · z ${Number(item.zscore || 0).toFixed(2)}${item.timestamp ? ` · ${new Date(item.timestamp).toLocaleString()}` : ''}`).join('\n'), context: { pair: symbol } };
+  if (!records.length) return { handled: true, response: `I don't have recorded ${symbol || ''} signal history available right now.` };
+  return { handled: true, response: reasonAboutHistory(symbol, records), context: { pair: symbol } };
 }
 
 async function answerMonitor(symbol) {
