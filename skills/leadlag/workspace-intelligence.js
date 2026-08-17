@@ -2,7 +2,7 @@ const { getSignals } = require('./tools/signal-tool');
 const { getMarketData } = require('./tools/market-tool');
 const { getHistory } = require('./tools/history-tool');
 const { addMonitor, getMonitored } = require('./tools/monitor-tool');
-const { reasonAboutSignal, reasonAboutHistory, reasonAboutSimilarSetup, compareEvidence } = require('./tools/reasoning-tool');
+const { reasonAboutSignal, reasonAboutSignalQuality, reasonAboutHistory, reasonAboutSimilarSetup, compareEvidence } = require('./tools/reasoning-tool');
 
 const PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'HYPE'];
 
@@ -56,6 +56,7 @@ function classify(text) {
   if (/\b(history|historical|past signals|previous signals|recent signals|what happened)\b/i.test(lower)) return 'history';
   if (/\b(similar|same setup|seen this before|seen a setup|before|again|repeat|repeated|historical pattern|pattern)\b/i.test(lower)) return 'similar_setup';
   if (/\b(compare|versus|vs\.?|strongest|weakest|best signal|worst signal|which .*leading|who .*leading|leader|follower|leading|lagging)\b/i.test(lower)) return 'comparison';
+  if (/\b(confidence|quality|reliable|reliability|strength|strong|weak|how good|how strong)\b/i.test(lower)) return 'signal_quality';
   if (/\b(why|explain|reason|unusual|stretched|mean.?reversion|what does .* mean)\b/i.test(lower)) return 'explanation';
   if (/\b(signal|signals|z-?score|lead.?lag|deviation|correlation|lag)\b/i.test(lower)) return 'signals';
   if (/\b(price|market|ticker|worth|value|cost|how much|doing|happening|going|now|currently|right now)\b/i.test(lower)) return 'market';
@@ -66,6 +67,7 @@ function clarification(symbol, kind) {
   if (symbol) return null;
   if (kind === 'explanation') return 'Which market should I explain? Try “why SOL?” or “explain the BTC signal”.';
   if (kind === 'similar_setup') return 'Which market should I compare against its history? Try “has SOL seen this setup before?”';
+  if (kind === 'signal_quality') return 'Which market should I assess? Try “how strong is SOL?” or “is the BTC signal reliable?”';
   if (kind === 'monitor') return 'Which market should I watch? Try “monitor SOL” or “watch BTC”.';
   if (kind === 'market') return 'Which market do you want me to inspect? Try BTC, ETH, SOL, XRP, DOGE, or HYPE.';
   return null;
@@ -112,6 +114,14 @@ async function answerExplanation(symbol) {
   const record = data.pairs?.[pairId(symbol)];
   const market = await getMarketData(pairId(symbol));
   return { handled: true, response: reasonAboutSignal(symbol, record, market), context: { pair: symbol } };
+}
+
+async function answerSignalQuality(symbol) {
+  if (!symbol) return { handled: true, response: clarification(null, 'signal_quality') };
+  const data = await getSignals();
+  if (!data || data.error) return { handled: true, response: "The signal engine is unavailable right now, so I can't assess evidence quality from verified measurements." };
+  const record = data.pairs?.[pairId(symbol)];
+  return { handled: true, response: reasonAboutSignalQuality(symbol, record), context: { pair: symbol } };
 }
 
 async function answerComparison(symbol) {
@@ -173,6 +183,7 @@ async function answerFollowUp(symbol, text, messages) {
   const kind = classify(text);
   if (kind === 'history') return answerHistory(symbol);
   if (kind === 'similar_setup') return answerSimilarSetup(symbol);
+  if (kind === 'signal_quality') return answerSignalQuality(symbol);
   if (kind === 'explanation' || /^why\b/i.test(text.trim())) return answerExplanation(symbol);
   if (kind === 'comparison') return answerComparison(symbol);
   if (kind === 'signals') return answerSignals(symbol);
@@ -194,9 +205,10 @@ async function processConversation(messages = []) {
   if (clarificationMessage) return { handled: true, response: clarificationMessage };
   switch (kind) {
     case 'greeting': return { handled: true, response: pick([`Hey. I'm here. What market are you looking at?`, `What's up? Give me a market or ask for the current lead-lag read.`, `I'm online. Point me at a pair and we'll work through it.`], seed(text, messages)) };
-    case 'help': return { handled: true, response: 'Ask about live market data, current signals, lead-lag relationships, signal history, monitoring, comparisons, historical setup similarity, or explanations. I will use the existing Gizmo engine for the numbers rather than inventing them.' };
+    case 'help': return { handled: true, response: 'Ask about live market data, current signals, lead-lag relationships, signal history, monitoring, comparisons, historical setup similarity, signal strength, or explanations. I will use the existing Gizmo engine for the numbers rather than inventing them.' };
     case 'market': return symbol ? answerMarket(symbol, messages, text) : { handled: true, response: clarification(null, 'market') };
     case 'signals': return answerSignals(symbol);
+    case 'signal_quality': return answerSignalQuality(symbol);
     case 'explanation': return answerExplanation(symbol);
     case 'similar_setup': return answerSimilarSetup(symbol);
     case 'comparison': return answerComparison(symbol);
