@@ -2,6 +2,7 @@ const { getSignals } = require('./tools/signal-tool');
 const { getMarketData } = require('./tools/market-tool');
 const { getHistory } = require('./tools/history-tool');
 const { addMonitor, getMonitored } = require('./tools/monitor-tool');
+const { reasonAboutSignal, compareEvidence } = require('./tools/reasoning-tool');
 
 const PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'HYPE'];
 
@@ -112,17 +113,16 @@ async function answerExplanation(symbol) {
   if (!symbol) return { handled: true, response: 'Which market should I explain? Try “why SOL?” or “explain the BTC signal”.' };
   const data = await getSignals();
   if (!data || data.error) return { handled: true, response: "The signal engine is unavailable right now, so I can't explain a measurement I can't verify." };
-  return { handled: true, response: interpretRecord(symbol, data.pairs?.[pairId(symbol)]), context: { pair: symbol } };
+  const record = data.pairs?.[pairId(symbol)];
+  const market = await getMarketData(pairId(symbol));
+  return { handled: true, response: reasonAboutSignal(symbol, record, market), context: { pair: symbol } };
 }
 
 async function answerComparison() {
   const data = await getSignals();
   if (!data || data.error) return { handled: true, response: "The signal engine is unavailable right now. I won't rank markets without current engine data." };
   const entries = Object.entries(data.pairs || {}).filter(([, value]) => value && value.signal !== 'NO_DATA');
-  if (!entries.length) return { handled: true, response: 'There are no current quantitative measurements available to compare.' };
-  const ranked = entries.sort((a, b) => Math.abs(Number(b[1].zscore || 0)) - Math.abs(Number(a[1].zscore || 0)));
-  const strongest = ranked[0];
-  return { handled: true, response: `By absolute z-score, ${strongest[0].replace('-USDT-SWAP', '')} is the most stretched current read at ${Number(strongest[1].zscore || 0).toFixed(2)}.\n\nCurrent ranking:\n${ranked.map(([key, value], index) => `${index + 1}. ${key.replace('-USDT-SWAP', '')} · ${value.signal || 'NO_DATA'} · ${value.direction || 'NEUTRAL'} · z ${Number(value.zscore || 0).toFixed(2)}`).join('\n')}`, context: { pair: strongest[0].split('-')[0] } };
+  return { handled: true, response: compareEvidence(entries), context: entries[0] ? { pair: entries[0][0].split('-')[0] } : undefined };
 }
 
 async function answerHistory(symbol) {
