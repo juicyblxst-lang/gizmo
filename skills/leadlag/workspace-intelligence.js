@@ -53,7 +53,7 @@ function classify(text) {
   if (/\b(monitor|watch|track|watchlist|start monitoring)\b/i.test(lower)) return 'monitor';
   if (/\b(history|historical|past signals|previous signals|recent signals|what happened)\b/i.test(lower)) return 'history';
   if (/\b(similar|same setup|seen this before|seen a setup|before|again|repeat|repeated|historical pattern|pattern)\b/i.test(lower)) return 'similar_setup';
-  if (/\b(compare|versus|vs\.?|strongest|weakest|best signal|worst signal|which .*leading|who .*leading|leader|follower)\b/i.test(lower)) return 'comparison';
+  if (/\b(compare|versus|vs\.?|strongest|weakest|best signal|worst signal|which .*leading|who .*leading|leader|follower|leading|lagging)\b/i.test(lower)) return 'comparison';
   if (/\b(why|explain|reason|unusual|stretched|mean.?reversion|what does .* mean)\b/i.test(lower)) return 'explanation';
   if (/\b(signal|signals|z-?score|lead.?lag|deviation|correlation|lag)\b/i.test(lower)) return 'signals';
   if (/\b(price|market|ticker|worth|value|cost|how much|doing|happening|going|now|currently|right now)\b/i.test(lower)) return 'market';
@@ -103,9 +103,20 @@ async function answerExplanation(symbol) {
   return { handled: true, response: reasonAboutSignal(symbol, record, market), context: { pair: symbol } };
 }
 
-async function answerComparison() {
+async function answerComparison(symbol) {
   const data = await getSignals();
-  if (!data || data.error) return { handled: true, response: "The signal engine is unavailable right now. I won't rank markets without current engine data." };
+  if (!data || data.error) return { handled: true, response: "The signal engine is unavailable right now. I won't rank or describe lead-lag relationships without current engine data." };
+  if (symbol === 'BTC') {
+    return { handled: true, response: 'In the current quantitative engine, BTC is the reference leader. The other supported markets are evaluated as followers against BTC; I will not invent a different leader from the conversational layer.', context: { pair: 'BTC' } };
+  }
+  if (symbol) {
+    const record = data.pairs?.[pairId(symbol)];
+    if (!record || record.signal === 'NO_DATA') return { handled: true, response: `I don't have a current lead-lag measurement for ${symbol}.` };
+    if (record.signal === 'INSUFFICIENT_DATA' || record.signal === 'NO_CORRELATION') return { handled: true, response: `The engine cannot establish a usable BTC → ${symbol} lead-lag relationship from the current sample: ${record.signal}.`, context: { pair: symbol } };
+    const lag = record.lag == null ? null : Number(record.lag);
+    const corr = record.correlation == null ? null : Number(record.correlation);
+    return { handled: true, response: `The current engine treats BTC as the leader and ${symbol} as the follower. ${lag == null ? 'No lag measurement is available.' : `The measured lag is ${lag}h`}${corr == null ? '.' : ` with correlation ${corr.toFixed(3)}.`} This describes the engine's measured relationship; it is not a new calculation or prediction.`, context: { pair: symbol } };
+  }
   const entries = Object.entries(data.pairs || {}).filter(([, value]) => value && value.signal !== 'NO_DATA');
   return { handled: true, response: compareEvidence(entries), context: entries[0] ? { pair: entries[0][0].split('-')[0] } : undefined };
 }
@@ -152,6 +163,7 @@ async function answerFollowUp(symbol, text, messages) {
   if (kind === 'history') return answerHistory(symbol);
   if (kind === 'similar_setup') return answerSimilarSetup(symbol);
   if (kind === 'explanation' || /^why\b/i.test(text.trim())) return answerExplanation(symbol);
+  if (kind === 'comparison') return answerComparison(symbol);
   if (kind === 'signals') return answerSignals(symbol);
   if (kind === 'monitor') return answerMonitor(symbol, text);
   return answerMarket(symbol, messages, text);
@@ -173,7 +185,7 @@ async function processConversation(messages = []) {
     case 'signals': return answerSignals(symbol);
     case 'explanation': return answerExplanation(symbol);
     case 'similar_setup': return answerSimilarSetup(symbol);
-    case 'comparison': return answerComparison();
+    case 'comparison': return answerComparison(symbol);
     case 'history': return answerHistory(symbol);
     case 'monitor': return answerMonitor(symbol, text);
     case 'status': {
