@@ -22,7 +22,9 @@ function lastUser(messages) {
 
 function previousPair(messages, beforeIndex = (messages || []).length) {
   for (let i = beforeIndex - 1; i >= 0; i -= 1) {
-    const pair = extractPair(textOf(messages[i]));
+    const message = messages[i];
+    if (message?.role !== 'user') continue;
+    const pair = extractPair(textOf(message));
     if (pair) return pair;
   }
   return null;
@@ -42,7 +44,7 @@ function pick(items, n) { return items[n % items.length]; }
 function pairId(symbol) { return `${symbol}-USDT-SWAP`; }
 
 function isFollowUp(text) {
-  return /^(why|how|what do you mean|why is that|why do you think so|is that unusual|what about it|and what about that|explain|tell me more|how so|what does that mean|what happened|has it|did it|and\s+then)\b/i.test(text.trim());
+  return /^(why|how|what do you mean|why is that|why do you think so|is that unusual|what about it|and what about that|explain|tell me more|how so|what does that mean|what happened|has it|did it|and\s+then|so\s+what|what\s+now|then\s+what)\b/i.test(text.trim());
 }
 
 function classify(text) {
@@ -58,6 +60,15 @@ function classify(text) {
   if (/\b(signal|signals|z-?score|lead.?lag|deviation|correlation|lag)\b/i.test(lower)) return 'signals';
   if (/\b(price|market|ticker|worth|value|cost|how much|doing|happening|going|now|currently|right now)\b/i.test(lower)) return 'market';
   return 'unknown';
+}
+
+function clarification(symbol, kind) {
+  if (symbol) return null;
+  if (kind === 'explanation') return 'Which market should I explain? Try “why SOL?” or “explain the BTC signal”.';
+  if (kind === 'similar_setup') return 'Which market should I compare against its history? Try “has SOL seen this setup before?”';
+  if (kind === 'monitor') return 'Which market should I watch? Try “monitor SOL” or “watch BTC”.';
+  if (kind === 'market') return 'Which market do you want me to inspect? Try BTC, ETH, SOL, XRP, DOGE, or HYPE.';
+  return null;
 }
 
 async function evidence(symbol) {
@@ -95,7 +106,7 @@ async function answerSignals(symbol) {
 }
 
 async function answerExplanation(symbol) {
-  if (!symbol) return { handled: true, response: 'Which market should I explain? Try “why SOL?” or “explain the BTC signal”.' };
+  if (!symbol) return { handled: true, response: clarification(null, 'explanation') };
   const data = await getSignals();
   if (!data || data.error) return { handled: true, response: "The signal engine is unavailable right now, so I can't explain a measurement I can't verify." };
   const record = data.pairs?.[pairId(symbol)];
@@ -129,7 +140,7 @@ async function answerHistory(symbol) {
 }
 
 async function answerSimilarSetup(symbol) {
-  if (!symbol) return { handled: true, response: 'Which market should I compare against its history? Try “has SOL seen this setup before?”' };
+  if (!symbol) return { handled: true, response: clarification(null, 'similar_setup') };
   const [signals, historyData] = await Promise.all([getSignals(), getHistory(50, pairId(symbol))]);
   if (!signals || signals.error) return { handled: true, response: "The signal engine is unavailable right now, so I can't compare the current setup against history." };
   const record = signals.pairs?.[pairId(symbol)];
@@ -142,7 +153,7 @@ async function answerMonitor(symbol, text = '') {
     const monitored = await getMonitored();
     const pairs = Array.isArray(monitored?.monitored) ? monitored.monitored : [];
     const wantsStatus = /\b(what|which|list|show|status|currently|am i|my)\b/i.test(text) || /\b(watchlist|monitoring)\b/i.test(text);
-    if (!wantsStatus) return { handled: true, response: 'Which market should I watch? Try “monitor SOL” or “watch BTC”.' };
+    if (!wantsStatus) return { handled: true, response: clarification(null, 'monitor') };
     if (monitored?.error) return { handled: true, response: "I couldn't read the monitoring list, so I won't invent its contents." };
     if (!pairs.length) return { handled: true, response: 'Nothing is currently on the monitoring list.' };
     const signals = await getSignals();
@@ -177,11 +188,14 @@ async function processConversation(messages = []) {
   const explicitPair = extractPair(text);
   const contextPair = previousPair(messages, userIndex);
   const symbol = explicitPair || contextPair;
+  const kind = classify(text);
+  const clarificationMessage = clarification(symbol, kind);
   if (isFollowUp(text) && symbol) return answerFollowUp(symbol, text, messages);
-  switch (classify(text)) {
+  if (clarificationMessage) return { handled: true, response: clarificationMessage };
+  switch (kind) {
     case 'greeting': return { handled: true, response: pick([`Hey. I'm here. What market are you looking at?`, `What's up? Give me a market or ask for the current lead-lag read.`, `I'm online. Point me at a pair and we'll work through it.`], seed(text, messages)) };
     case 'help': return { handled: true, response: 'Ask about live market data, current signals, lead-lag relationships, signal history, monitoring, comparisons, historical setup similarity, or explanations. I will use the existing Gizmo engine for the numbers rather than inventing them.' };
-    case 'market': return symbol ? answerMarket(symbol, messages, text) : { handled: true, response: 'Which market do you want me to inspect? Try BTC, ETH, SOL, XRP, DOGE, or HYPE.' };
+    case 'market': return symbol ? answerMarket(symbol, messages, text) : { handled: true, response: clarification(null, 'market') };
     case 'signals': return answerSignals(symbol);
     case 'explanation': return answerExplanation(symbol);
     case 'similar_setup': return answerSimilarSetup(symbol);
@@ -196,4 +210,4 @@ async function processConversation(messages = []) {
   }
 }
 
-module.exports = { processConversation, extractPair, classify };
+module.exports = { processConversation, extractPair, classify, previousPair };
