@@ -2,7 +2,7 @@ const { getSignals } = require('./tools/signal-tool');
 const { getMarketData } = require('./tools/market-tool');
 const { getHistory } = require('./tools/history-tool');
 const { addMonitor, getMonitored } = require('./tools/monitor-tool');
-const { reasonAboutSignal, reasonAboutHistory, compareEvidence } = require('./tools/reasoning-tool');
+const { reasonAboutSignal, reasonAboutHistory, reasonAboutSimilarSetup, compareEvidence } = require('./tools/reasoning-tool');
 
 const PAIRS = ['BTC', 'ETH', 'SOL', 'XRP', 'DOGE', 'HYPE'];
 
@@ -52,6 +52,7 @@ function classify(text) {
   if (/\b(status|health|is it working)\b/i.test(lower) && lower.length < 40) return 'status';
   if (/\b(monitor|watch|track|watchlist|start monitoring)\b/i.test(lower)) return 'monitor';
   if (/\b(history|historical|past signals|previous signals|recent signals|what happened)\b/i.test(lower)) return 'history';
+  if (/\b(similar|same setup|seen this before|seen a setup|before|again|repeat|repeated|historical pattern|pattern)\b/i.test(lower)) return 'similar_setup';
   if (/\b(compare|versus|vs\.?|strongest|weakest|best signal|worst signal|which .*leading|who .*leading|leader|follower)\b/i.test(lower)) return 'comparison';
   if (/\b(why|explain|reason|unusual|stretched|mean.?reversion|what does .* mean)\b/i.test(lower)) return 'explanation';
   if (/\b(signal|signals|z-?score|lead.?lag|deviation|correlation|lag)\b/i.test(lower)) return 'signals';
@@ -60,25 +61,9 @@ function classify(text) {
 }
 
 async function evidence(symbol) {
-  const [market, signals] = await Promise.all([
-    getMarketData(pairId(symbol)),
-    getSignals(),
-  ]);
+  const [market, signals] = await Promise.all([getMarketData(pairId(symbol)), getSignals()]);
   const record = signals?.pairs?.[pairId(symbol)] || null;
   return { market, record, signals };
-}
-
-function interpretRecord(symbol, record) {
-  if (!record) return `I don't have a current quantitative measurement for ${symbol}.`;
-  const z = Number(record.zscore || 0);
-  const direction = String(record.direction || 'NEUTRAL');
-  const signal = String(record.signal || 'NO_DATA');
-  const lag = record.lag == null ? null : Number(record.lag);
-  const correlation = record.correlation == null ? null : Number(record.correlation);
-  if (signal === 'NO_DATA') return `${symbol} does not currently have enough engine data for a signal interpretation.`;
-  const stretch = Math.abs(z) >= 2 ? 'The residual is materially stretched relative to the engine\'s measured baseline.' : Math.abs(z) >= 1 ? 'The residual is somewhat extended, but it has not crossed the engine\'s active threshold.' : 'The residual is relatively close to its measured baseline.';
-  const relation = lag == null ? '' : ` The measured lead-lag is ${lag}h${correlation == null ? '' : ` with correlation ${correlation.toFixed(3)}`}.`;
-  return `${symbol} is ${signal.toLowerCase()} with a ${direction.toLowerCase()} direction and z-score ${z.toFixed(2)}. ${stretch}${relation}`;
 }
 
 async function answerMarket(symbol, messages, userText) {
@@ -97,7 +82,7 @@ async function answerMarket(symbol, messages, userText) {
   const s = seed(userText, messages);
   const opening = change > 1 ? pick([`${symbol} is leaning higher right now.`, `There's some upside pressure in ${symbol}'s current 24h read.`, `${symbol} is carrying a positive tilt on the latest snapshot.`], s) : change < -1 ? pick([`${symbol} is under some pressure right now.`, `The latest ${symbol} snapshot is tilted lower.`, `${symbol} is leaning soft on the current 24h move.`], s) : pick([`${symbol} is fairly contained on the latest snapshot.`, `Nothing especially stretched is showing up in ${symbol} right now.`, `${symbol} is moving, but the latest read is relatively modest.`], s);
   const engine = `The lead-lag engine has it at ${signal} / ${direction}, with a z-score of ${z.toFixed(2)}${lag == null ? '' : ` and a measured ${lag}h lag`}${correlation == null ? '' : ` (correlation ${correlation.toFixed(3)})`}.`;
-  return { handled: true, response: [opening, `24h: ${change.toFixed(2)}% · price $${price.toLocaleString()} · range $${low.toLocaleString()}–$${high.toLocaleString()} · volume $${volume.toLocaleString()}.`, engine].join('\n') , context: { pair: symbol } };
+  return { handled: true, response: [opening, `24h: ${change.toFixed(2)}% · price $${price.toLocaleString()} · range $${low.toLocaleString()}–$${high.toLocaleString()} · volume $${volume.toLocaleString()}.`, engine].join('\n'), context: { pair: symbol } };
 }
 
 async function answerSignals(symbol) {
@@ -132,6 +117,15 @@ async function answerHistory(symbol) {
   return { handled: true, response: reasonAboutHistory(symbol, records), context: { pair: symbol } };
 }
 
+async function answerSimilarSetup(symbol) {
+  if (!symbol) return { handled: true, response: 'Which market should I compare against its history? Try “has SOL seen this setup before?”' };
+  const [signals, historyData] = await Promise.all([getSignals(), getHistory(50, pairId(symbol))]);
+  if (!signals || signals.error) return { handled: true, response: "The signal engine is unavailable right now, so I can't compare the current setup against history." };
+  const record = signals.pairs?.[pairId(symbol)];
+  const records = Array.isArray(historyData) ? historyData : (historyData?.signals || []);
+  return { handled: true, response: reasonAboutSimilarSetup(symbol, record, records), context: { pair: symbol } };
+}
+
 async function answerMonitor(symbol) {
   if (!symbol) return { handled: true, response: 'Which market should I watch? Try “monitor SOL” or “watch BTC”.' };
   const result = await addMonitor(pairId(symbol));
@@ -141,6 +135,7 @@ async function answerMonitor(symbol) {
 async function answerFollowUp(symbol, text, messages) {
   const kind = classify(text);
   if (kind === 'history') return answerHistory(symbol);
+  if (kind === 'similar_setup') return answerSimilarSetup(symbol);
   if (kind === 'explanation' || /^why\b/i.test(text.trim())) return answerExplanation(symbol);
   if (kind === 'signals') return answerSignals(symbol);
   return answerMarket(symbol, messages, text);
@@ -157,10 +152,11 @@ async function processConversation(messages = []) {
   if (isFollowUp(text) && symbol) return answerFollowUp(symbol, text, messages);
   switch (classify(text)) {
     case 'greeting': return { handled: true, response: pick([`Hey. I'm here. What market are you looking at?`, `What's up? Give me a market or ask for the current lead-lag read.`, `I'm online. Point me at a pair and we'll work through it.`], seed(text, messages)) };
-    case 'help': return { handled: true, response: 'Ask about live market data, current signals, lead-lag relationships, signal history, monitoring, comparisons, or explanations. I will use the existing Gizmo engine for the numbers rather than inventing them.' };
+    case 'help': return { handled: true, response: 'Ask about live market data, current signals, lead-lag relationships, signal history, monitoring, comparisons, historical setup similarity, or explanations. I will use the existing Gizmo engine for the numbers rather than inventing them.' };
     case 'market': return symbol ? answerMarket(symbol, messages, text) : { handled: true, response: 'Which market do you want me to inspect? Try BTC, ETH, SOL, XRP, DOGE, or HYPE.' };
     case 'signals': return answerSignals(symbol);
     case 'explanation': return answerExplanation(symbol);
+    case 'similar_setup': return answerSimilarSetup(symbol);
     case 'comparison': return answerComparison();
     case 'history': return answerHistory(symbol);
     case 'monitor': return answerMonitor(symbol);
