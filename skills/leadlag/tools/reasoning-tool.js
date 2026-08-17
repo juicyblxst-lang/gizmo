@@ -85,6 +85,46 @@ function reasonAboutSignal(symbol, record, market, history = []) {
     return parts.join(' ');
 }
 
+function reasonAboutHistory(symbol, records = []) {
+    const usable = (records || []).filter((item) => item && !item.error);
+    if (!usable.length) {
+        return `I don't have recorded signal history for ${symbol || 'that market'} yet.`;
+    }
+
+    const directions = usable
+        .map((item) => String(item.direction || 'NEUTRAL').toUpperCase())
+        .filter(Boolean);
+    const active = usable.filter((item) => String(item.signal || '').toUpperCase() === 'ACTIVE');
+    const longCount = directions.filter((direction) => direction === 'LONG').length;
+    const shortCount = directions.filter((direction) => direction === 'SHORT').length;
+    const neutralCount = directions.filter((direction) => direction === 'NEUTRAL').length;
+    const latest = usable[0];
+    const latestDirection = String(latest.direction || 'NEUTRAL').toUpperCase();
+    const latestZ = num(latest.zscore);
+
+    const parts = [
+        `I found ${usable.length} recorded engine observations for ${symbol || 'the requested market'}.`,
+        `${active.length} were recorded as active signals; ${longCount} LONG, ${shortCount} SHORT, and ${neutralCount} NEUTRAL observations are present in the returned history.`,
+    ];
+
+    if (latestDirection !== 'NEUTRAL' || latestZ != null) {
+        parts.push(`The most recent recorded observation is ${latestDirection}${latestZ == null ? '' : ` with z-score ${latestZ.toFixed(2)}`}.`);
+    }
+
+    if (usable.length >= 2) {
+        const previous = usable[1];
+        const previousDirection = String(previous.direction || 'NEUTRAL').toUpperCase();
+        if (previousDirection === latestDirection) {
+            parts.push(`The latest and immediately preceding observations have the same direction (${latestDirection}), so the returned history shows directional continuity across those observations.`);
+        } else {
+            parts.push(`The latest direction differs from the immediately preceding observation (${previousDirection} → ${latestDirection}), so the returned history shows a recent directional change.`);
+        }
+    }
+
+    parts.push(`This is a description of recorded engine outputs, not a newly calculated historical statistic or a prediction.`);
+    return parts.join(' ');
+}
+
 function compareEvidence(entries) {
     const usable = (entries || []).filter(([, value]) => value && value.signal !== 'NO_DATA');
     if (!usable.length) return 'There are no current quantitative measurements available to compare.';
@@ -101,4 +141,4 @@ function compareEvidence(entries) {
     return `Among the currently measured markets, ${name} has the largest absolute z-score${z == null ? '' : ` at ${z.toFixed(2)}`}. This is a ranking of the engine's measured evidence, not a prediction of which market will perform best.`;
 }
 
-module.exports = { reasonAboutSignal, compareEvidence };
+module.exports = { reasonAboutSignal, reasonAboutHistory, compareEvidence };
